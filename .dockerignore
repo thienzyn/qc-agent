@@ -1,0 +1,14 @@
+.env
+.greennode.json
+.agentbase
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.claude
+notebooks
+README.md
+README.txt
+Dockerfile.txt
+.agentbase/
