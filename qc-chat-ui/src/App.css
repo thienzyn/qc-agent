@@ -235,7 +235,7 @@ body {
 .markdown p:last-child { margin-bottom: 0; }
 .markdown h2 { font-size: 16px; font-weight: 700; margin: 14px 0 7px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 .markdown h3 { font-size: 15px; font-weight: 700; margin: 12px 0 5px; color: var(--blue-dark); }
-.markdown strong { font-weight: 600; color: var(--blue-dark); }
+.markdown strong { font-weight: 600; color: var(--text); }
 .markdown em { font-style: italic; color: var(--text-muted); }
 .markdown hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .markdown p.list-item { padding-left: 4px; margin-bottom: 5px; }
