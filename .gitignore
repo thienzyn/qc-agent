@@ -1,0 +1,9 @@
+.agentbase/
+.env
+.greennode.json
+
+__pycache__/
+*.pyc
+
+Dockerfile.txt
+README.txt
