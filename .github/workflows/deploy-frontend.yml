@@ -35,18 +35,27 @@ jobs:
 
       - name: Login to GreenNode Container Registry
         run: |
-          curl -s -X POST \
-            "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1/auth/token" \
+          # Lấy access token từ Client ID + Secret
+          ACCESS_TOKEN=$(curl -s -X POST \
+            "https://iamapis.vngcloud.vn/accounts-api/v2/auth/token" \
             -H "Content-Type: application/json" \
             -d "{\"clientId\":\"${{ secrets.GREENNODE_CLIENT_ID }}\",\"clientSecret\":\"${{ secrets.GREENNODE_CLIENT_SECRET }}\"}" \
-            | jq -r '.token' > /tmp/token.txt
+            | jq -r '.accessToken')
 
-          TOKEN=$(cat /tmp/token.txt)
-          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
 
-          docker login vcr.vngcloud.vn \
-            -u "account" \
-            -p "$TOKEN"
+          # Lấy registry credentials
+          CR_CREDS=$(curl -s -X GET \
+            "https://agentbase.vngcloud.vn/api/v1/registry-credential" \
+            -H "Authorization: Bearer $ACCESS_TOKEN")
+
+          CR_USER=$(echo $CR_CREDS | jq -r '.username')
+          CR_SECRET=$(echo $CR_CREDS | jq -r '.secret')
+
+          # Docker login
+          echo "$CR_SECRET" | docker login vcr.vngcloud.vn \
+            -u "$CR_USER" \
+            --password-stdin
 
       - name: Build and push Docker image
         working-directory: qc-chat-ui
@@ -59,12 +68,13 @@ jobs:
 
       - name: Update GreenNode Runtime
         run: |
-          TOKEN=$(cat /tmp/token.txt)
-          curl -s -X PUT \
-            "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1/runtimes/runtime-fc611d2e-74f0-4921-abfc-f2e204d6b75f" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"image":"vcr.vngcloud.vn/111480-abp112032/qc-chat-ui:latest"}'
+          bash greennode-agentbase-skills/.claude/skills/agentbase/scripts/runtime.sh \
+            update runtime-fc611d2e-74f0-4921-abfc-f2e204d6b75f \
+            --image vcr.vngcloud.vn/111480-abp112032/qc-chat-ui:latest \
+            --from-cr
+        env:
+          AGENTBASE_CLIENT_ID: ${{ secrets.GREENNODE_CLIENT_ID }}
+          AGENTBASE_CLIENT_SECRET: ${{ secrets.GREENNODE_CLIENT_SECRET }}
 
       - name: Done
         run: echo "✅ Frontend deployed successfully!"
