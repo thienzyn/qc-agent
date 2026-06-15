@@ -4,14 +4,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/**'
-      - 'public/**'
-      - 'index.html'
-      - 'package*.json'
-      - 'vite.config.js'
-      - 'Dockerfile'
-      - 'nginx.conf'
-      - '.github/workflows/deploy.yml'
+      - 'qc-chat-ui/src/**'
+      - 'qc-chat-ui/public/**'
+      - 'qc-chat-ui/index.html'
+      - 'qc-chat-ui/package*.json'
+      - 'qc-chat-ui/vite.config.js'
+      - 'qc-chat-ui/Dockerfile'
+      - 'qc-chat-ui/nginx.conf'
+      - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
 env:
@@ -26,6 +26,9 @@ jobs:
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: qc-chat-ui
 
     steps:
       - name: Checkout
@@ -36,6 +39,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: qc-chat-ui/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -55,7 +59,7 @@ jobs:
           GREENNODE_CLIENT_ID: ${{ secrets.GREENNODE_CLIENT_ID }}
           GREENNODE_CLIENT_SECRET: ${{ secrets.GREENNODE_CLIENT_SECRET }}
         run: |
-          # 1. Get IAM token
+          # 1. Get IAM token — HTTP Basic Auth + form body (NOT JSON)
           TOKEN=$(curl -sf -X POST "$IAM_TOKEN_URL" \
             -u "${GREENNODE_CLIENT_ID}:${GREENNODE_CLIENT_SECRET}" \
             -d "grant_type=client_credentials" \
@@ -81,7 +85,7 @@ jobs:
           CR_SECRET=$(echo "$CREDS_JSON"   | jq -r '.secret')
           echo "::add-mask::$CR_SECRET"
 
-          # 4. Docker login (secret piped via stdin, never on command line)
+          # 4. Docker login (secret via stdin, never on command line)
           echo "$CR_SECRET" | docker login "$REGISTRY_URL" \
             -u "$CR_USERNAME" --password-stdin
 
@@ -91,12 +95,14 @@ jobs:
           docker push "$IMAGE"
 
           # Expose non-secret values to subsequent steps
-          echo "image=$IMAGE"           >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE"             >> "$GITHUB_OUTPUT"
           echo "cr_username=$CR_USERNAME" >> "$GITHUB_OUTPUT"
-          # cr_secret passed via masked env var for runtime update step
-          echo "CR_SECRET=$CR_SECRET"   >> "$GITHUB_ENV"
+          # cr_secret forwarded via masked env var for runtime update step
+          echo "CR_SECRET=$CR_SECRET"     >> "$GITHUB_ENV"
 
       # ── Update AgentBase runtime ──────────────────────────────────────────
+      # PATCH /runtime/agent-runtimes/{id} — requires full payload including
+      # imageAuth so the platform can pull the private image.
       - name: Update AgentBase runtime
         env:
           GREENNODE_CLIENT_ID: ${{ secrets.GREENNODE_CLIENT_ID }}
@@ -104,7 +110,6 @@ jobs:
           IMAGE: ${{ steps.docker.outputs.image }}
           CR_USERNAME: ${{ steps.docker.outputs.cr_username }}
         run: |
-          # Re-fetch token (previous token may have been issued >60 s ago)
           TOKEN=$(curl -sf -X POST "$IAM_TOKEN_URL" \
             -u "${GREENNODE_CLIENT_ID}:${GREENNODE_CLIENT_SECRET}" \
             -d "grant_type=client_credentials" \
@@ -118,23 +123,23 @@ jobs:
           echo "::add-mask::$TOKEN"
 
           PAYLOAD=$(jq -n \
-            --arg imageUrl  "$IMAGE" \
-            --arg flavorId  "$FLAVOR_ID" \
-            --arg crUser    "$CR_USERNAME" \
-            --arg crPass    "$CR_SECRET" \
+            --arg imageUrl "$IMAGE" \
+            --arg flavorId "$FLAVOR_ID" \
+            --arg crUser   "$CR_USERNAME" \
+            --arg crPass   "$CR_SECRET" \
             '{
-              imageUrl:   $imageUrl,
-              flavorId:   $flavorId,
+              imageUrl:    $imageUrl,
+              flavorId:    $flavorId,
               description: "",
-              command:    [],
-              args:       [],
+              command:     [],
+              args:        [],
               environmentVariables: {},
               imageAuth: {enabled: true, username: $crUser, password: $crPass},
               autoscaling: {
-                minReplicas:        1,
-                maxReplicas:        1,
-                cpuUtilization:     50,
-                memoryUtilization:  50
+                minReplicas:       1,
+                maxReplicas:       1,
+                cpuUtilization:    50,
+                memoryUtilization: 50
               }
             }')
 
@@ -145,9 +150,9 @@ jobs:
             -d "$PAYLOAD")
 
           STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
-          echo "Runtime status after update: $STATUS"
+          echo "Runtime status: $STATUS"
           if [ "$STATUS" = "ERROR" ]; then
-            echo "ERROR: Runtime reported ERROR immediately after update" >&2
+            echo "ERROR: Runtime reported ERROR after update" >&2
             exit 1
           fi
 
@@ -179,11 +184,11 @@ jobs:
           done
 
           if [ "$STATUS" != "ACTIVE" ]; then
-            echo "ERROR: Timed out waiting for ACTIVE (last status: $STATUS)" >&2
+            echo "ERROR: Timed out waiting for ACTIVE (last: $STATUS)" >&2
             exit 1
           fi
 
-          echo "Checking /health endpoint..."
+          echo "Checking /health..."
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${ENDPOINT_URL}/health")
           echo "HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" != "200" ]; then
@@ -191,7 +196,6 @@ jobs:
             exit 1
           fi
 
-          echo ""
-          echo "✓ Deployment complete"
+          echo "Deployment complete"
           echo "  Runtime : $RUNTIME_ID"
           echo "  Endpoint: $ENDPOINT_URL"
