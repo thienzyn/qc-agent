@@ -235,15 +235,15 @@ body {
 .markdown p:last-child { margin-bottom: 0; }
 .markdown h2 { font-size: 16px; font-weight: 700; margin: 14px 0 7px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 .markdown h3 { font-size: 15px; font-weight: 700; margin: 12px 0 5px; color: var(--blue-dark); }
-.markdown strong { font-weight: 700; color: var(--text); }
+.markdown strong { font-weight: 600; color: var(--blue-dark); }
 .markdown em { font-style: italic; color: var(--text-muted); }
 .markdown hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .markdown p.list-item { padding-left: 4px; margin-bottom: 5px; }
 .markdown p.list-item { color: var(--blue-deep); font-size: 12px; font-weight: 500; margin-top: 2px; }
 .markdown p.note-italic { font-style: italic; color: var(--text-muted); margin-bottom: 6px; }
 
-/* Brand highlight */
-.markdown .brand { color: var(--blue); font-weight: 600; }
+/* Brand highlight - disabled */
+.markdown .brand { color: inherit; font-weight: inherit; }
 
 /* QC note */
 .markdown p.qc-note {
