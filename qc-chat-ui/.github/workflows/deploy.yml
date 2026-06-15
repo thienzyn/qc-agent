@@ -1,0 +1,197 @@
+name: Deploy qc-chat-ui to AgentBase
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package*.json'
+      - 'vite.config.js'
+      - 'Dockerfile'
+      - 'nginx.conf'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+env:
+  RUNTIME_ID: runtime-fc611d2e-74f0-4921-abfc-f2e204d6b75f
+  FLAVOR_ID: runtime-s2-general-2x4
+  IMAGE_NAME: qc-chat-ui
+  ENDPOINT_URL: https://endpoint-8909668f-c4e6-49dd-bd82-367acac162bc.agentbase-runtime.aiplatform.vngcloud.vn
+  IAM_TOKEN_URL: https://iam.api.vngcloud.vn/accounts-api/v2/auth/token
+  AGENTBASE_API: https://agentbase.api.vngcloud.vn
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build & push image ────────────────────────────────────────────────
+      # Fetches IAM token → CR credentials → docker login → build → push.
+      # CR secret is masked immediately and never leaves this step.
+      - name: Build & push Docker image
+        id: docker
+        env:
+          GREENNODE_CLIENT_ID: ${{ secrets.GREENNODE_CLIENT_ID }}
+          GREENNODE_CLIENT_SECRET: ${{ secrets.GREENNODE_CLIENT_SECRET }}
+        run: |
+          # 1. Get IAM token
+          TOKEN=$(curl -sf -X POST "$IAM_TOKEN_URL" \
+            -u "${GREENNODE_CLIENT_ID}:${GREENNODE_CLIENT_SECRET}" \
+            -d "grant_type=client_credentials" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            | jq -r '.access_token // empty')
+
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: Failed to obtain IAM token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+
+          # 2. Get CR repo info (registry URL + repo name)
+          REPO_JSON=$(curl -sf "${AGENTBASE_API}/cr/api/v1/repository" \
+            -H "Authorization: Bearer $TOKEN")
+          REGISTRY_URL=$(echo "$REPO_JSON" | jq -r '.registryUrl')
+          REPO_NAME=$(echo "$REPO_JSON"   | jq -r '.name')
+
+          # 3. Get CR credentials
+          CREDS_JSON=$(curl -sf "${AGENTBASE_API}/cr/api/v1/registry-credential" \
+            -H "Authorization: Bearer $TOKEN")
+          CR_USERNAME=$(echo "$CREDS_JSON" | jq -r '.username')
+          CR_SECRET=$(echo "$CREDS_JSON"   | jq -r '.secret')
+          echo "::add-mask::$CR_SECRET"
+
+          # 4. Docker login (secret piped via stdin, never on command line)
+          echo "$CR_SECRET" | docker login "$REGISTRY_URL" \
+            -u "$CR_USERNAME" --password-stdin
+
+          # 5. Build & push
+          IMAGE="${REGISTRY_URL}/${REPO_NAME}/${IMAGE_NAME}:latest"
+          docker build --platform linux/amd64 -t "$IMAGE" .
+          docker push "$IMAGE"
+
+          # Expose non-secret values to subsequent steps
+          echo "image=$IMAGE"           >> "$GITHUB_OUTPUT"
+          echo "cr_username=$CR_USERNAME" >> "$GITHUB_OUTPUT"
+          # cr_secret passed via masked env var for runtime update step
+          echo "CR_SECRET=$CR_SECRET"   >> "$GITHUB_ENV"
+
+      # ── Update AgentBase runtime ──────────────────────────────────────────
+      - name: Update AgentBase runtime
+        env:
+          GREENNODE_CLIENT_ID: ${{ secrets.GREENNODE_CLIENT_ID }}
+          GREENNODE_CLIENT_SECRET: ${{ secrets.GREENNODE_CLIENT_SECRET }}
+          IMAGE: ${{ steps.docker.outputs.image }}
+          CR_USERNAME: ${{ steps.docker.outputs.cr_username }}
+        run: |
+          # Re-fetch token (previous token may have been issued >60 s ago)
+          TOKEN=$(curl -sf -X POST "$IAM_TOKEN_URL" \
+            -u "${GREENNODE_CLIENT_ID}:${GREENNODE_CLIENT_SECRET}" \
+            -d "grant_type=client_credentials" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            | jq -r '.access_token // empty')
+
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: Failed to obtain IAM token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+
+          PAYLOAD=$(jq -n \
+            --arg imageUrl  "$IMAGE" \
+            --arg flavorId  "$FLAVOR_ID" \
+            --arg crUser    "$CR_USERNAME" \
+            --arg crPass    "$CR_SECRET" \
+            '{
+              imageUrl:   $imageUrl,
+              flavorId:   $flavorId,
+              description: "",
+              command:    [],
+              args:       [],
+              environmentVariables: {},
+              imageAuth: {enabled: true, username: $crUser, password: $crPass},
+              autoscaling: {
+                minReplicas:        1,
+                maxReplicas:        1,
+                cpuUtilization:     50,
+                memoryUtilization:  50
+              }
+            }')
+
+          RESPONSE=$(curl -sf -X PATCH \
+            "${AGENTBASE_API}/runtime/agent-runtimes/${RUNTIME_ID}" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
+          echo "Runtime status after update: $STATUS"
+          if [ "$STATUS" = "ERROR" ]; then
+            echo "ERROR: Runtime reported ERROR immediately after update" >&2
+            exit 1
+          fi
+
+      # ── Wait for ACTIVE & health check ───────────────────────────────────
+      - name: Wait for ACTIVE & verify health
+        env:
+          GREENNODE_CLIENT_ID: ${{ secrets.GREENNODE_CLIENT_ID }}
+          GREENNODE_CLIENT_SECRET: ${{ secrets.GREENNODE_CLIENT_SECRET }}
+        run: |
+          TOKEN=$(curl -sf -X POST "$IAM_TOKEN_URL" \
+            -u "${GREENNODE_CLIENT_ID}:${GREENNODE_CLIENT_SECRET}" \
+            -d "grant_type=client_credentials" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            | jq -r '.access_token // empty')
+          echo "::add-mask::$TOKEN"
+
+          echo "Polling runtime status (max 5 min)..."
+          for i in $(seq 1 20); do
+            STATUS=$(curl -sf \
+              "${AGENTBASE_API}/runtime/agent-runtimes/${RUNTIME_ID}" \
+              -H "Authorization: Bearer $TOKEN" \
+              | jq -r '.status // empty')
+            echo "[$i/20] $STATUS"
+            case "$STATUS" in
+              ACTIVE) echo "Runtime is ACTIVE"; break ;;
+              ERROR)  echo "ERROR: Runtime entered ERROR state" >&2; exit 1 ;;
+            esac
+            sleep 15
+          done
+
+          if [ "$STATUS" != "ACTIVE" ]; then
+            echo "ERROR: Timed out waiting for ACTIVE (last status: $STATUS)" >&2
+            exit 1
+          fi
+
+          echo "Checking /health endpoint..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${ENDPOINT_URL}/health")
+          echo "HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: Health check failed (HTTP $HTTP_CODE)" >&2
+            exit 1
+          fi
+
+          echo ""
+          echo "✓ Deployment complete"
+          echo "  Runtime : $RUNTIME_ID"
+          echo "  Endpoint: $ENDPOINT_URL"
