@@ -239,7 +239,7 @@ body {
 .markdown em { font-style: italic; color: var(--text-muted); }
 .markdown hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .markdown p.list-item { padding-left: 4px; margin-bottom: 5px; }
-.markdown p.list-item { color: var(--blue-deep); font-size: 12px; font-weight: 500; margin-top: 2px; }
+.markdown p.list-item { color: var(--text); font-size: 15px; font-weight: 400; margin-top: 2px; }
 .markdown p.note-italic { font-style: italic; color: var(--text-muted); margin-bottom: 6px; }
 
 /* Brand highlight - disabled */

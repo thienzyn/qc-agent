@@ -14,19 +14,16 @@ function renderMarkdown(text) {
 
   for (let line of lines) {
     line = line.replace(/^>\s*/, "");
-    // Highlight Zalopay
-    line = line.replace(/(Zalopay)/g, '<span class="brand">$1</span>');
-
     if (/^### (.+)/.test(line)) {
       html += `<h3>${line.replace(/^### /, "")}</h3>`;
     } else if (/^## (.+)/.test(line)) {
       html += `<h2>${line.replace(/^## /, "")}</h2>`;
     } else if (/^\d+\.\s+/.test(line)) {
       const content = line.replace(/^\d+\.\s+/, "").replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>');
-      html += `<p class="list-item">• ${content}</p>`;
+      html += `<p class="list-item">- ${content}</p>`;
     } else if (/^[-•]\s+/.test(line)) {
       const content = line.replace(/^[-•]\s+/, "").replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>');
-      html += `<p class="list-item">• ${content}</p>`;
+      html += `<p class="list-item">- ${content}</p>`;
     } else if (line.trim() === "---") {
       html += '<hr/>';
     } else if (line.trim() === "") {
