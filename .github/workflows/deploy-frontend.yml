@@ -1,0 +1,70 @@
+name: Deploy Frontend to GreenNode
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'qc-chat-ui/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: qc-chat-ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: qc-chat-ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: qc-chat-ui
+        run: npm run build
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GreenNode Container Registry
+        run: |
+          curl -s -X POST \
+            "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1/auth/token" \
+            -H "Content-Type: application/json" \
+            -d "{\"clientId\":\"${{ secrets.GREENNODE_CLIENT_ID }}\",\"clientSecret\":\"${{ secrets.GREENNODE_CLIENT_SECRET }}\"}" \
+            | jq -r '.token' > /tmp/token.txt
+
+          TOKEN=$(cat /tmp/token.txt)
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+          docker login vcr.vngcloud.vn \
+            -u "account" \
+            -p "$TOKEN"
+
+      - name: Build and push Docker image
+        working-directory: qc-chat-ui
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -t vcr.vngcloud.vn/111480-abp112032/qc-chat-ui:latest \
+            -f Dockerfile .
+          docker push vcr.vngcloud.vn/111480-abp112032/qc-chat-ui:latest
+
+      - name: Update GreenNode Runtime
+        run: |
+          TOKEN=$(cat /tmp/token.txt)
+          curl -s -X PUT \
+            "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1/runtimes/runtime-fc611d2e-74f0-4921-abfc-f2e204d6b75f" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"image":"vcr.vngcloud.vn/111480-abp112032/qc-chat-ui:latest"}'
+
+      - name: Done
+        run: echo "✅ Frontend deployed successfully!"
