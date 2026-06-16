@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 from contextlib import asynccontextmanager
 
@@ -23,6 +24,7 @@ _engine = None
 _chat_engine = None
 _coach_engine = None
 _improve_engine = None
+_data = None
 
 
 # =====================================================
@@ -36,11 +38,12 @@ async def lifespan(app: FastAPI):
     global _chat_engine
     global _coach_engine
     global _improve_engine
+    global _data
 
-    data = load_excel_data()
+    _data = load_excel_data()
 
-    _engine = ReviewEngine(data)
-    _chat_engine = ChatEngine(data)
+    _engine = ReviewEngine(_data)
+    _chat_engine = ChatEngine(_data)
     _coach_engine = CoachEngine()
     _improve_engine = ImproveEngine()
 
@@ -50,6 +53,7 @@ async def lifespan(app: FastAPI):
     _chat_engine = None
     _coach_engine = None
     _improve_engine = None
+    _data = None
 
 
 # =====================================================
@@ -81,10 +85,12 @@ app.add_middleware(
 
 class ReviewRequest(BaseModel):
     chat_content: str
+    mood: str = "Normal"
 
 
 class ChatRequest(BaseModel):
     message: str
+    history: list[dict] = []
 
 
 class CoachRequest(BaseModel):
@@ -108,6 +114,21 @@ def health():
 
 
 # =====================================================
+# Templates
+# =====================================================
+
+@app.get("/templates")
+def get_templates():
+
+    if _data is None:
+        raise HTTPException(status_code=503, detail="Data not loaded.")
+
+    return {
+        "templates": _data.templates
+    }
+
+
+# =====================================================
 # Review
 # =====================================================
 
@@ -121,7 +142,8 @@ def review(request: ReviewRequest):
         )
 
     result = _engine.review(
-        request.chat_content
+        request.chat_content,
+        request.mood
     )
 
     return {
@@ -145,7 +167,8 @@ def chat(request: ChatRequest):
         )
 
     answer = _chat_engine.chat(
-        request.message
+        request.message,
+        request.history
     )
 
     return {
