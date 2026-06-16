@@ -35,16 +35,16 @@ body {
   box-shadow: 0 1px 12px rgba(0,104,255,0.07);
 }
 .header-inner {
-  max-width: 900px; margin: 0 auto;
-  padding: 0 24px; height: 58px;
-  display: flex; align-items: center; gap: 14px;
+  max-width: 100%; margin: 0 auto;
+  padding: 0 20px; height: 58px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;
 }
 .logo { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
 .zp-zalo { color: #0033CC; }
 .zp-pay  { color: #00B14F; }
 .header-divider { width: 1px; height: 20px; background: var(--border); }
 .header-product { font-size: 14px; font-weight: 600; color: var(--text-muted); }
-.header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; }
 
 .status-pill {
   display: flex; align-items: center; gap: 6px;
@@ -52,7 +52,7 @@ body {
   color: var(--blue-dark);
   background: var(--blue-light);
   border: 1px solid var(--blue-mid);
-  padding: 5px 13px; border-radius: 99px;
+  padding: 4px 10px; border-radius: 99px; white-space: nowrap;
 }
 .status-dot {
   width: 7px; height: 7px;
@@ -331,10 +331,11 @@ body {
   border-radius: 99px;
   padding: 3px;
   border: 1px solid var(--border);
-  margin-left: 8px;
+  margin-left: 4px;
+  flex-shrink: 0;
 }
 .header-tab {
-  padding: 5px 16px;
+  padding: 5px 12px;
   border-radius: 99px;
   border: none;
   background: transparent;
@@ -586,6 +587,7 @@ body {
   border-top: 1px solid var(--border);
   padding: 14px 16px;
   background: var(--bg);
+  text-align: left;
 }
 .tpl-content {
   font-size: 13.5px;
@@ -594,6 +596,7 @@ body {
   white-space: pre-wrap;
   font-family: inherit;
   margin-bottom: 12px;
+  text-align: left;
 }
 .tpl-card-actions { display: flex; gap: 8px; }
 

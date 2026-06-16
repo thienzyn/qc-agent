@@ -346,7 +346,7 @@ export default function App() {
             <span className="zp-zalo">Zalo</span><span className="zp-pay">pay</span>
           </div>
           <div className="header-divider" />
-          <span className="header-product">Bee - Chú Ong Template</span>
+
 
           <nav className="header-tabs">
             <button className={`header-tab ${tab === "chat" ? "header-tab--active" : ""}`} onClick={() => setTab("chat")}>Smart Reply</button>
