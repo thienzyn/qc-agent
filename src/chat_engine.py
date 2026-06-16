@@ -1,148 +1,94 @@
 import os
 from openai import OpenAI
-
 from .excel_loader import ExcelData
 
-MAX_TOKENS = 2000
+MAX_TOKENS = 500  # Giảm mạnh để phản hồi nhanh hơn
 
 
 class ChatEngine:
 
     def __init__(self, data: ExcelData):
-
-        api_key = os.getenv("LLM_API_KEY")
-        model = os.getenv("LLM_MODEL")
-        base_url = os.getenv(
-            "LLM_BASE_URL",
-            "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
-        )
+        api_key  = os.getenv("LLM_API_KEY")
+        model    = os.getenv("LLM_MODEL")
+        base_url = os.getenv("LLM_BASE_URL", "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1")
 
         if not api_key:
-            raise EnvironmentError(
-                "LLM_API_KEY environment variable is not set."
-            )
-
+            raise EnvironmentError("LLM_API_KEY environment variable is not set.")
         if not model:
-            raise EnvironmentError(
-                "LLM_MODEL environment variable is not set."
-            )
+            raise EnvironmentError("LLM_MODEL environment variable is not set.")
 
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url
-        )
-
-        self.model = model
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.model  = model
         self._system_prompt = self._build_system_prompt(data)
-
 
     def _build_system_prompt(self, data: ExcelData) -> str:
 
-        # ── QC Rules ──────────────────────────────────────────────────────────
-        qc_section = ""
-        if hasattr(data, "qc_rules") and data.qc_rules:
-            qc_lines = []
-            for rule in data.qc_rules:
-                line = f"- [{rule.get('P-Level', '')}] {rule.get('Tên tiêu chí', '')}: {rule.get('Biểu hiện lỗi', '')}"
-                if rule.get('Điểm trừ'):
-                    line += f" (Điểm trừ: {rule.get('Điểm trừ')})"
-                qc_lines.append(line)
-            qc_section = "\n".join(qc_lines)
-
-        # ── Templates ─────────────────────────────────────────────────────────
-        template_section = ""
-        if hasattr(data, "templates") and data.templates:
-            tmpl_lines = []
-            for t in data.templates:
-                title   = t.get("Title", "")
-                content = t.get("Content", "")
-                folder  = t.get("Folder Name", "")
-                if title and content:
-                    tmpl_lines.append(
-                        f"### [{folder}] {title}\n{content[:600]}"
-                    )
-            template_section = "\n\n".join(tmpl_lines)
-
-        # ── Tone Guide ────────────────────────────────────────────────────────
-        tone_section = ""
-        if hasattr(data, "tone_guide") and data.tone_guide:
-            tone_lines = []
-            for t in data.tone_guide:
-                mood      = t.get("Customer Mood", "")
-                principle = t.get("Nguyên tắc", "")
-                tone_lines.append(f"- {mood}: {principle}")
-            tone_section = "\n".join(tone_lines)
-
-        # ── Writing Rules ─────────────────────────────────────────────────────
-        writing_section = ""
+        # Writing Rules — cực gọn
+        writing = ""
         if hasattr(data, "writing_rules") and data.writing_rules:
-            writing_lines = []
+            lines = []
             for w in data.writing_rules:
-                rule_id = w.get("Rule_ID", "")
-                avoid   = w.get("Điều cần tránh", "")
-                writing_lines.append(f"- [{rule_id}] {avoid}")
-            writing_section = "\n".join(writing_lines)
+                rid = str(w.get("Mã", "")).strip()
+                ok  = str(w.get("✅ Cách Làm Đúng", "")).strip()
+                if rid and rid != "nan":
+                    lines.append(f"[{rid}] {ok}")
+            writing = "\n".join(lines)
 
-        # ── Assemble prompt ───────────────────────────────────────────────────
-        return f"""
-Bạn là QC AI Assistant của Zalopay — trợ lý thông minh hỗ trợ đội ngũ chăm sóc khách hàng.
+        # Tone Guide — chỉ mood + principle
+        tone = ""
+        if hasattr(data, "tone_guide") and data.tone_guide:
+            lines = []
+            for t in data.tone_guide:
+                mood = str(t.get("Tâm Trạng Khách Hàng", "")).strip()
+                prin = str(t.get("Nguyên Tắc Xử Lý", "")).strip()
+                if mood and mood != "nan":
+                    lines.append(f"{mood}: {prin}")
+            tone = "\n".join(lines)
 
-=== NHIỆM VỤ ===
-1. Tìm và gợi ý template phản hồi phù hợp với tình huống.
-2. Soạn hoặc điều chỉnh phản hồi theo ngữ cảnh cụ thể.
-3. Nhắc nhở các lỗi QC cần tránh.
-4. Viết đúng văn phong và tông giọng Zalopay.
-5. Luôn trả lời bằng tiếng Việt.
+        # Templates — chỉ 350 ký tự mỗi mẫu, bỏ mẫu trùng folder
+        templates = ""
+        if hasattr(data, "templates") and data.templates:
+            lines = []
+            seen_folders = {}
+            for t in data.templates:
+                title   = str(t.get("Tiêu Đề Template", "")).strip()
+                content = str(t.get("Nội Dung Phản Hồi", "")).strip()
+                folder  = str(t.get("Thư Mục", "")).strip()
+                if title and content and title != "nan" and content != "nan":
+                    lines.append(f"[{folder}] {title}\n{content[:350]}")
+            templates = "\n---\n".join(lines)
 
-=== NGUYÊN TẮC GIAO TIẾP ===
-- Đồng cảm với khách hàng, không tranh cãi, không đổ lỗi.
-- Luôn có lời chào đầu ("Chào bạn") và lời kết thúc.
-- Gọi thương hiệu đúng: "Zalopay" (chữ p thường).
-- Không dùng "ZaloPay", "Zalo Pay" hay "ZALOPAY".
-- Mỗi ý xuống dòng riêng, không canh giữa.
-- Ngắn gọn, rõ ràng, dễ hiểu.
+        return f"""Bee 🐝 — CS Bot Zalopay. Phản hồi NHANH, NGẮN, ĐÚng trọng tâm.
 
-=== ĐỊNH DẠNG PHẢN HỒI (BẮT BUỘC) ===
-Khi soạn phản hồi cho nhân viên CS, luôn tuân theo cấu trúc sau:
+FORMAT BẮT BUỘC:
+- Xác định tâm trạng KH → chọn template phù hợp → điền [placeholder] → cá nhân hóa 1 câu
+- Xưng "Zalopay". Không emoji trong template. Kết thúc: 💡 QC: (1 dòng ngắn)
+- Nếu không đủ thông tin → hỏi đúng 1 câu ngắn
 
-1. Dùng ## cho tiêu đề tình huống, ### cho từng trường hợp.
-2. TUYỆT ĐỐI KHÔNG dùng **in đậm** trong nội dung template gửi khách hàng — viết thuần text.
-3. Chỉ được dùng **in đậm** trong phần ghi chú cho nhân viên (không phải template), tối đa 1-2 cụm từ.
-4. KHÔNG dùng màu, KHÔNG bold placeholder [...], KHÔNG bold tên hành động thông thường.
-5. Mỗi trường hợp thêm dòng 💡 Lưu ý QC ở cuối.
-6. Không dùng dấu > để trích dẫn.
+TONE: {tone}
 
-=== TIÊU CHÍ QC (cần tuân thủ & nhắc nhở) ===
-{qc_section if qc_section else "Chưa có dữ liệu QC Rules."}
+RULES: {writing}
 
-=== TONE GIỌNG THEO TÂM TRẠNG KHÁCH HÀNG ===
-{tone_section if tone_section else "Chưa có dữ liệu Tone Guide."}
+TEMPLATES:
+{templates}""".strip()
 
-=== QUY TẮC VIẾT — ĐIỀU CẦN TRÁNH ===
-{writing_section if writing_section else "Chưa có dữ liệu Writing Rules."}
+    def chat(self, message: str, history: list[dict] | None = None) -> str:
+        messages = [{"role": "system", "content": self._system_prompt}]
 
-=== KHO TEMPLATE PHẢN HỒI ===
-Khi được hỏi về tình huống cụ thể, hãy ưu tiên dùng hoặc điều chỉnh template phù hợp dưới đây:
+        # Chỉ lấy 2 turn gần nhất để giảm context
+        if history:
+            for turn in history[-2:]:
+                role    = turn.get("role", "user")
+                content = str(turn.get("content", "")).strip()
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
 
-{template_section if template_section else "Chưa có dữ liệu Template."}
-""".strip()
-
-
-    def chat(self, message: str) -> str:
+        messages.append({"role": "user", "content": message})
 
         response = self.client.chat.completions.create(
             model=self.model,
             max_tokens=MAX_TOKENS,
-            messages=[
-                {
-                    "role": "system",
-                    "content": self._system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ]
+            messages=messages
         )
 
         return response.choices[0].message.content.strip()

@@ -125,14 +125,16 @@ FORMAT JSON:
 
     # ── Review ────────────────────────────────────────────────────────────────
 
-    def review(self, chat_content: str):
+    def review(self, chat_content: str, mood: str = "Normal"):
+
+        user_content = f"Tâm trạng khách hàng: {mood}\n\n{chat_content}" if mood and mood != "Normal" else chat_content
 
         response = self.client.chat.completions.create(
             model=self.model,
             max_tokens=MAX_TOKENS,
             messages=[
                 {"role": "system", "content": self._system_prompt},
-                {"role": "user",   "content": chat_content}
+                {"role": "user",   "content": user_content}
             ]
         )
 
