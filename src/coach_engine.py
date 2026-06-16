@@ -19,29 +19,25 @@ class CoachEngine:
 
     def coach(self, errors):
 
-        prompt = f"""
-Bạn là QC Lead của ZaloPay.
+        system = """Bạn là QC Lead Zalopay. Phản hồi NGẮN GỌN, KHÔNG dùng bảng markdown, KHÔNG format phức tạp.
 
-Dựa trên các lỗi sau:
+Cấu trúc bắt buộc (tổng dưới 200 từ):
+Lỗi chính: (2-3 dòng mô tả ngắn)
+Cách khắc phục:
+- (bullet ngắn)
+- (bullet ngắn)
+- (bullet ngắn)
+Ví dụ: (1 câu mẫu phản hồi đúng)"""
 
-{errors}
-
-Hãy:
-
-1. Phân tích nguyên nhân.
-2. Đưa ra coaching plan.
-3. Đưa ví dụ đúng.
-4. Đưa action plan trong 2 tuần.
-"""
+        prompt = f"Lỗi cần coaching:\n{errors}"
 
         response = self.client.chat.completions.create(
             model=self.model,
+            max_tokens=400,
             messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "system", "content": system},
+                {"role": "user",   "content": prompt},
             ]
         )
 
-        return response.choices[0].message.content
+        return response.choices[0].message.content.strip()

@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 from .excel_loader import ExcelData
 
-MAX_TOKENS = 500  # Giảm mạnh để phản hồi nhanh hơn
+MAX_TOKENS = 2000
 
 
 class ChatEngine:
@@ -23,53 +23,63 @@ class ChatEngine:
 
     def _build_system_prompt(self, data: ExcelData) -> str:
 
-        # Writing Rules — cực gọn
-        writing = ""
-        if hasattr(data, "writing_rules") and data.writing_rules:
-            lines = []
-            for w in data.writing_rules:
-                rid = str(w.get("Mã", "")).strip()
-                ok  = str(w.get("✅ Cách Làm Đúng", "")).strip()
-                if rid and rid != "nan":
-                    lines.append(f"[{rid}] {ok}")
-            writing = "\n".join(lines)
-
-        # Tone Guide — chỉ mood + principle
+        # Tone Guide — mood + principle (tối đa 10 dòng)
         tone = ""
         if hasattr(data, "tone_guide") and data.tone_guide:
             lines = []
-            for t in data.tone_guide:
+            for t in data.tone_guide[:10]:
                 mood = str(t.get("Tâm Trạng Khách Hàng", "")).strip()
                 prin = str(t.get("Nguyên Tắc Xử Lý", "")).strip()
                 if mood and mood != "nan":
-                    lines.append(f"{mood}: {prin}")
+                    lines.append(f"{mood}: {prin[:80]}")
             tone = "\n".join(lines)
 
-        # Templates — chỉ 350 ký tự mỗi mẫu, bỏ mẫu trùng folder
+        # Lưu ý QC — tối đa 10 dòng
+        luu_y_qc = ""
+        if hasattr(data, "writing_rules") and data.writing_rules:
+            lines = []
+            for w in data.writing_rules[:10]:
+                avoid = str(w.get("❌ Điều Cần Tránh", "")).strip()
+                ok    = str(w.get("✅ Cách Làm Đúng", "")).strip()
+                if avoid and avoid != "nan":
+                    if ok and ok != "nan":
+                        lines.append(f"❌ {avoid[:60]} → ✅ {ok[:60]}")
+                    else:
+                        lines.append(f"❌ {avoid[:80]}")
+            luu_y_qc = "\n".join(lines)
+
+        # Templates — 1 mẫu mỗi folder, tối đa 100 ký tự nội dung, tối đa 15 folders
         templates = ""
         if hasattr(data, "templates") and data.templates:
             lines = []
-            seen_folders = {}
+            seen_folders = set()
             for t in data.templates:
                 title   = str(t.get("Tiêu Đề Template", "")).strip()
                 content = str(t.get("Nội Dung Phản Hồi", "")).strip()
                 folder  = str(t.get("Thư Mục", "")).strip()
                 if title and content and title != "nan" and content != "nan":
-                    lines.append(f"[{folder}] {title}\n{content[:350]}")
-            templates = "\n---\n".join(lines)
+                    if folder not in seen_folders:
+                        seen_folders.add(folder)
+                        lines.append(f"[{folder}] {title}: {content[:100]}")
+                        if len(seen_folders) >= 15:
+                            break
+            templates = "\n".join(lines)
 
-        return f"""Bee 🐝 — CS Bot Zalopay. Phản hồi NHANH, NGẮN, ĐÚng trọng tâm.
+        return f"""Bee 🐝 — CS Bot Zalopay. Phản hồi NHANH, NGẮN, đúng trọng tâm.
 
-FORMAT BẮT BUỘC:
-- Xác định tâm trạng KH → chọn template phù hợp → điền [placeholder] → cá nhân hóa 1 câu
-- Xưng "Zalopay". Không emoji trong template. Kết thúc: 💡 QC: (1 dòng ngắn)
+QUY TẮC:
+- Xưng "Zalopay". Không emoji trong nội dung phản hồi.
+- Dùng template phù hợp, điền [placeholder], cá nhân hóa.
+- Cuối phản hồi LUÔN có phần: 💡 Lưu ý QC: (1-2 dòng ngắn nhắc điều cần tránh)
 - Nếu không đủ thông tin → hỏi đúng 1 câu ngắn
 
-TONE: {tone}
+TONE THEO TÂM TRẠNG KHÁCH HÀNG:
+{tone}
 
-RULES: {writing}
+LƯU Ý QC — ĐIỀU CẦN TRÁNH:
+{luu_y_qc}
 
-TEMPLATES:
+TEMPLATES THAM KHẢO:
 {templates}""".strip()
 
     def chat(self, message: str, history: list[dict] | None = None) -> str:
@@ -91,4 +101,4 @@ TEMPLATES:
             messages=messages
         )
 
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip().replace("$\\rightarrow$", "→")
